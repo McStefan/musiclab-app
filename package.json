@@ -20,9 +20,7 @@
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx}\"",
-    "type-check": "tsc --noEmit",
-    "prepare": "husky install",
-    "postinstall": "npx playwright install --with-deps"
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@amplitude/analytics-react-native": "^1.5.6",
