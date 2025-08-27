@@ -32,7 +32,9 @@
         "WRITE_EXTERNAL_STORAGE",
         "READ_EXTERNAL_STORAGE",
         "USE_FINGERPRINT",
-        "USE_BIOMETRIC"
+        "USE_BIOMETRIC",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "web": {
@@ -44,8 +46,14 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "ea431807"
+        "projectId": "ea431807-2ec4-41cb-bb8e-fafb447ec4c5"
       }
-    }
+    },
+    "sdkVersion": "52.0.0",
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ]
   }
 }
