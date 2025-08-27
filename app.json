@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "MusicLab",
-    "slug": "musiclab",
+    "slug": "musiclab-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -15,7 +15,8 @@
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.musiclab.app"
     },
     "android": {
       "package": "com.musiclab.app",
@@ -32,8 +33,7 @@
         "READ_EXTERNAL_STORAGE",
         "USE_FINGERPRINT",
         "USE_BIOMETRIC"
-      ],
-      "buildType": "apk"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -41,6 +41,11 @@
     },
     "plugins": [
       "expo-av"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "ea431807"
+      }
+    }
   }
 }
