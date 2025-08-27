@@ -42,3 +42,5 @@ yarn-error.*
 *.zip
 build-command.sh
 musiclab-project.tar.gz
+android.keystore
+credentials.json
