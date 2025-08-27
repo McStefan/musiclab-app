@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "MusicLab",
-    "slug": "musiclab-app",
+    "slug": "testapp",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
