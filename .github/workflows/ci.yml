@@ -1,0 +1,356 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  NODE_VERSION: '18'
+  EXPO_CLI_VERSION: 'latest'
+
+jobs:
+  lint-and-typecheck:
+    name: Lint and Type Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run TypeScript check
+        run: npm run type-check
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Run unit tests
+        run: npm test -- --coverage
+
+      - name: Upload coverage to Codecov
+        if: github.event_name == 'push'
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage/lcov.info
+          flags: unittests
+          name: codecov-umbrella
+
+  build-web:
+    name: Build Web (PWA)
+    runs-on: ubuntu-latest
+    needs: [lint-and-typecheck, test]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Setup Expo CLI
+        run: npm install -g @expo/cli@${{ env.EXPO_CLI_VERSION }}
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build for web
+        run: npx expo export --platform web
+        env:
+          EXPO_PUBLIC_API_KEY: ${{ secrets.EXPO_PUBLIC_API_KEY }}
+          EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+          EXPO_PUBLIC_AMPLITUDE_API_KEY: ${{ secrets.EXPO_PUBLIC_AMPLITUDE_API_KEY }}
+          EXPO_PUBLIC_GOOGLE_CLIENT_ID: ${{ secrets.EXPO_PUBLIC_GOOGLE_CLIENT_ID }}
+          EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID: ${{ secrets.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID }}
+
+      - name: Upload web build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: web-build
+          path: dist/
+          retention-days: 7
+
+  build-android:
+    name: Build Android
+    runs-on: ubuntu-latest
+    needs: [lint-and-typecheck, test]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v2
+
+      - name: Setup Expo CLI
+        run: npm install -g @expo/cli@${{ env.EXPO_CLI_VERSION }} eas-cli
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Create Expo project config
+        run: |
+          cat > app.config.js << EOF
+          export default {
+            expo: {
+              name: "MusicLab",
+              slug: "musiclab",
+              version: "1.0.0",
+              orientation: "portrait",
+              icon: "./assets/icon.png",
+              userInterfaceStyle: "light",
+              splash: {
+                image: "./assets/splash.png",
+                resizeMode: "contain",
+                backgroundColor: "#ffffff"
+              },
+              assetBundlePatterns: ["**/*"],
+              ios: {
+                supportsTablet: true
+              },
+              android: {
+                adaptiveIcon: {
+                  foregroundImage: "./assets/adaptive-icon.png",
+                  backgroundColor: "#ffffff"
+                },
+                package: "com.musiclab.app"
+              },
+              web: {
+                favicon: "./assets/favicon.png",
+                bundler: "metro"
+              },
+              plugins: ["expo-router"],
+              extra: {
+                eas: {
+                  projectId: "${{ secrets.EXPO_PROJECT_ID }}"
+                }
+              }
+            }
+          };
+          EOF
+
+      - name: Build APK (Development)
+        if: github.ref == 'refs/heads/develop'
+        run: npx expo build:android --type apk --release-channel staging
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_PUBLIC_API_KEY: ${{ secrets.EXPO_PUBLIC_API_KEY }}
+
+      - name: Build AAB (Production)
+        if: github.ref == 'refs/heads/main'
+        run: npx expo build:android --type app-bundle --release-channel production
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_PUBLIC_API_KEY: ${{ secrets.EXPO_PUBLIC_API_KEY }}
+
+  e2e-web:
+    name: E2E Tests (Web)
+    runs-on: ubuntu-latest
+    needs: [build-web]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Download web build
+        uses: actions/download-artifact@v3
+        with:
+          name: web-build
+          path: dist/
+
+      - name: Start web server
+        run: npx serve dist -l 3000 &
+        
+      - name: Wait for server
+        run: npx wait-on http://localhost:3000
+
+      - name: Run Playwright tests
+        run: npx playwright test
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Run npm audit
+        run: npm audit --audit-level moderate
+
+      - name: Run CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+        with:
+          languages: javascript
+
+  performance-budget:
+    name: Performance Budget
+    runs-on: ubuntu-latest
+    needs: [build-web]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download web build
+        uses: actions/download-artifact@v3
+        with:
+          name: web-build
+          path: dist/
+
+      - name: Analyze bundle size
+        run: |
+          du -sh dist/
+          find dist/ -name "*.js" -exec du -h {} + | sort -hr
+          find dist/ -name "*.css" -exec du -h {} + | sort -hr
+
+      - name: Check bundle size limits
+        run: |
+          # Check if main bundle is under 2MB
+          BUNDLE_SIZE=$(du -k dist/static/js/*.js | awk '{sum+=$1} END {print sum}')
+          if [ $BUNDLE_SIZE -gt 2048 ]; then
+            echo "Bundle size $BUNDLE_SIZE KB exceeds 2MB limit"
+            exit 1
+          fi
+          echo "Bundle size: $BUNDLE_SIZE KB (within limits)"
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build-web, e2e-web]
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download web build
+        uses: actions/download-artifact@v3
+        with:
+          name: web-build
+          path: dist/
+
+      - name: Deploy to staging
+        run: |
+          echo "Deploying to staging environment..."
+          echo "This would deploy to your staging server/CDN"
+          # Add your deployment commands here
+          # Example: aws s3 sync dist/ s3://staging-bucket/
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-web, e2e-web, security-scan]
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download web build
+        uses: actions/download-artifact@v3
+        with:
+          name: web-build
+          path: dist/
+
+      - name: Deploy to production
+        run: |
+          echo "Deploying to production environment..."
+          echo "This would deploy to your production server/CDN"
+          # Add your deployment commands here
+          # Example: aws s3 sync dist/ s3://production-bucket/
+
+      - name: Notify deployment
+        run: |
+          echo "Production deployment completed successfully!"
+          # Add notification logic (Slack, email, etc.)
+
+  notify-status:
+    name: Notify Build Status
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: always()
+    
+    steps:
+      - name: Notify success
+        if: ${{ needs.deploy-staging.result == 'success' || needs.deploy-production.result == 'success' }}
+        run: echo "Deployment successful! ✅"
+
+      - name: Notify failure
+        if: ${{ needs.deploy-staging.result == 'failure' || needs.deploy-production.result == 'failure' }}
+        run: echo "Deployment failed! ❌"
